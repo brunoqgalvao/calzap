@@ -1,0 +1,23 @@
+name = "cal-tracker"
+main = "src/index.ts"
+compatibility_date = "2025-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cal-tracker-db"
+database_id = "88b3049c-8b12-4ea5-9a2d-fa1425b756f3"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "cal-tracker-media"
+
+# Secrets (set via `wrangler secret put`):
+# OPENAI_API_KEY
+# WEBHOOK_SECRET
+# ZAP_GATEWAY_API_KEY
+# ADMIN_PHONE_NUMBER
+#
+# Optional plain-text vars/secrets:
+# WHATSAPP_BUSINESS_NUMBER
+# ZAP_GATEWAY_BASE_URL
