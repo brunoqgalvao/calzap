@@ -1,8 +1,8 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, ModelMessage, stepCountIs } from 'ai';
+import { generateText, stepCountIs } from 'ai';
 import { createCalTrackerTools } from './tools';
 import { getRecentMessages, saveMessage } from '../db/messages';
-import { Env, FoodItem } from '../types';
+import { Env, FoodItem, MessageRow } from '../types';
 import { getTodayMeals } from '../db/meals';
 import { getUser } from '../db/users';
 import { formatTodaySummary } from '../utils/formatting';
@@ -71,6 +71,26 @@ function renderToolOutputs(toolResults: Array<{ output: unknown }>): string | nu
   return outputs.join('\n\n');
 }
 
+function buildConversationContext(history: MessageRow[], currentUserMessage: string): string {
+  const priorMessages = history.slice(0, -1).slice(-6);
+
+  if (priorMessages.length === 0) {
+    return currentUserMessage;
+  }
+
+  const transcript = priorMessages
+    .map((message) => `${message.role === 'user' ? 'Usuario' : 'Assistente'}: ${message.content}`)
+    .join('\n');
+
+  return [
+    'Contexto recente da conversa:',
+    transcript,
+    '',
+    'Mensagem atual do usuario:',
+    currentUserMessage,
+  ].join('\n');
+}
+
 export async function handleChat(
   env: Env,
   userId: number,
@@ -80,18 +100,15 @@ export async function handleChat(
   await saveMessage(env.DB, userId, 'user', userMessage);
 
   const history = await getRecentMessages(env.DB, userId, 10);
-  const messages: ModelMessage[] = history.map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  const modelInput = buildConversationContext(history, userMessage);
 
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
 
   try {
     const result = await generateText({
-      model: openai('gpt-4.1-mini'),
+      model: openai.chat('gpt-4.1-mini'),
       system: SYSTEM_PROMPT,
-      messages,
+      messages: [{ role: 'user', content: modelInput }],
       tools: createCalTrackerTools(env, userId, {
         disableMealLogging: options.mealAlreadyLogged,
       }),
