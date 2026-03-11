@@ -43,26 +43,10 @@ jobs:
       - name: Run Neon migrations
         run: bun run db:migrate:neon
 
-      - name: Mint Cloudflare access token
-        id: cloudflare_auth
-        run: |
-          set -euo pipefail
-          response="$(curl -sS https://dash.cloudflare.com/oauth2/token \
-            -d grant_type=refresh_token \
-            -d refresh_token=${{ secrets.CLOUDFLARE_REFRESH_TOKEN }} \
-            -d client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7)"
-          access_token="$(printf '%s' "$response" | jq -r '.access_token')"
-          if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
-            printf '%s\n' "$response"
-            exit 1
-          fi
-          echo "::add-mask::$access_token"
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
-
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ steps.cloudflare_auth.outputs.access_token }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           secrets: |
