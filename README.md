@@ -97,8 +97,8 @@ GitHub Actions is set up to:
 
 Repository secrets required by the deploy workflow:
 
-- `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_REFRESH_TOKEN`
 - `OPENAI_API_KEY`
 - `WEBHOOK_SECRET`
 - `ZAP_GATEWAY_API_KEY`
