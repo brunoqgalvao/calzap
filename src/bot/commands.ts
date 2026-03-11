@@ -1,3 +1,4 @@
+import { isAccessOpen } from '../db/allowlist';
 import { Env, WhatsAppConversationContext } from '../types';
 import { getUser } from '../db/users';
 import { addAllowed, listAllowed, removeAllowed } from '../db/allowlist';
@@ -26,6 +27,18 @@ export async function handleAdminCommand(
   const [command, ...args] = text.trim().split(/\s+/);
 
   if (command === '/permitir') {
+    if (isAccessOpen(env.ACCESS_MODE)) {
+      await sendMessage(
+        env,
+        context.businessPhone,
+        context.senderPhone,
+        'Acesso aberto para todos. Defina ACCESS_MODE=restricted para reativar a allowlist.',
+        context.incomingMessageId,
+        { userId: context.userId, source: 'admin-command' },
+      );
+      return true;
+    }
+
     if (args.length === 0) {
       const ids = await listAllowed(env.DB);
       let list = 'Numeros permitidos:\n\n';
@@ -34,7 +47,10 @@ export async function handleAdminCommand(
         list += found?.first_name ? `${found.first_name} (${id})\n` : `${id}\n`;
       }
       list += '\nUse /permitir 5511999999999';
-      await sendMessage(env, context.businessPhone, context.senderPhone, list, context.incomingMessageId);
+      await sendMessage(env, context.businessPhone, context.senderPhone, list, context.incomingMessageId, {
+        userId: context.userId,
+        source: 'admin-command',
+      });
       return true;
     }
 
@@ -42,20 +58,41 @@ export async function handleAdminCommand(
     try {
       resolvedId = phoneToUserId(args[0]);
     } catch {
-      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /permitir 5511999999999.', context.incomingMessageId);
+      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /permitir 5511999999999.', context.incomingMessageId, {
+        userId: context.userId,
+        source: 'admin-command',
+      });
       return true;
     }
 
     await addAllowed(env.DB, resolvedId);
     const added = await getUser(env.DB, resolvedId);
     const label = added?.first_name ? `${added.first_name} (${resolvedId})` : `${resolvedId}`;
-    await sendMessage(env, context.businessPhone, context.senderPhone, `${label} adicionado.`, context.incomingMessageId);
+    await sendMessage(env, context.businessPhone, context.senderPhone, `${label} adicionado.`, context.incomingMessageId, {
+      userId: context.userId,
+      source: 'admin-command',
+    });
     return true;
   }
 
   if (command === '/remover') {
+    if (isAccessOpen(env.ACCESS_MODE)) {
+      await sendMessage(
+        env,
+        context.businessPhone,
+        context.senderPhone,
+        'Acesso aberto para todos. Defina ACCESS_MODE=restricted para usar remocao por allowlist.',
+        context.incomingMessageId,
+        { userId: context.userId, source: 'admin-command' },
+      );
+      return true;
+    }
+
     if (args.length === 0) {
-      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /remover 5511999999999.', context.incomingMessageId);
+      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /remover 5511999999999.', context.incomingMessageId, {
+        userId: context.userId,
+        source: 'admin-command',
+      });
       return true;
     }
 
@@ -63,17 +100,30 @@ export async function handleAdminCommand(
     try {
       resolvedId = phoneToUserId(args[0]);
     } catch {
-      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /remover 5511999999999.', context.incomingMessageId);
+      await sendMessage(env, context.businessPhone, context.senderPhone, 'Use /remover 5511999999999.', context.incomingMessageId, {
+        userId: context.userId,
+        source: 'admin-command',
+      });
       return true;
     }
 
     if (resolvedId === phoneToUserId(env.ADMIN_PHONE_NUMBER)) {
-      await sendMessage(env, context.businessPhone, context.senderPhone, 'Nao pode remover o admin.', context.incomingMessageId);
+      await sendMessage(env, context.businessPhone, context.senderPhone, 'Nao pode remover o admin.', context.incomingMessageId, {
+        userId: context.userId,
+        source: 'admin-command',
+      });
       return true;
     }
 
     const removed = await removeAllowed(env.DB, resolvedId);
-    await sendMessage(env, context.businessPhone, context.senderPhone, removed ? 'Numero removido.' : 'Numero nao encontrado.', context.incomingMessageId);
+    await sendMessage(
+      env,
+      context.businessPhone,
+      context.senderPhone,
+      removed ? 'Numero removido.' : 'Numero nao encontrado.',
+      context.incomingMessageId,
+      { userId: context.userId, source: 'admin-command' },
+    );
     return true;
   }
 
@@ -81,5 +131,8 @@ export async function handleAdminCommand(
 }
 
 export async function handleStart(env: Env, context: WhatsAppConversationContext): Promise<void> {
-  await sendMessage(env, context.businessPhone, context.senderPhone, MSG.WELCOME, context.incomingMessageId);
+  await sendMessage(env, context.businessPhone, context.senderPhone, MSG.WELCOME, context.incomingMessageId, {
+    userId: context.userId,
+    source: 'start',
+  });
 }

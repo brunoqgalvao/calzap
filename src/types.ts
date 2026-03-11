@@ -1,13 +1,21 @@
-export interface Env {
-  DB: D1Database;
+import type { Database } from './db/client';
+
+export interface Bindings {
   MEDIA_BUCKET: R2Bucket;
   OPENAI_API_KEY: string;
   WEBHOOK_SECRET: string;
   ZAP_GATEWAY_API_KEY: string;
   ADMIN_PHONE_NUMBER: string;
+  NEON_DATABASE_URL: string;
   ZAP_GATEWAY_BASE_URL?: string;
   WHATSAPP_BUSINESS_NUMBER?: string;
+  ADMIN_DASHBOARD_PASSWORD?: string;
+  ACCESS_MODE?: string;
 }
+
+export type Env = Bindings & {
+  DB: Database;
+};
 
 // --- WhatsApp types ---
 
@@ -83,20 +91,31 @@ export interface WhatsAppConversationContext {
   businessPhone: string;
   incomingMessageId?: string;
   senderName?: string;
+  publicOrigin?: string;
 }
 
 // --- OpenAI types ---
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+export type DashboardView = 'day' | 'week' | 'month';
 
 export interface FoodItem {
   nome: string;
   quantidade: string;
   calorias: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
 }
 
 export interface FoodAnalysis {
   descricao: string;
   itens: FoodItem[];
   total_calorias: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fat_g: number;
+  meal_type: MealType;
   confianca: 'alta' | 'media' | 'baixa';
   observacoes: string;
 }
@@ -117,11 +136,33 @@ export interface MealRow {
   description: string;
   food_items: string;
   total_calories: number;
+  meal_type: MealType;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fat_g: number;
   photo_r2_key: string | null;
   audio_r2_key: string | null;
   follow_up_text: string | null;
   analysis_source: string;
   logged_at: string;
+  created_at: string;
+}
+
+export interface DailyMealTotalsRow {
+  date: string;
+  total_calories: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fat_g: number;
+  meal_count: number;
+}
+
+export interface WeightRow {
+  id: number;
+  user_id: number;
+  weight_kg: number;
+  note: string | null;
+  measured_at: string;
   created_at: string;
 }
 

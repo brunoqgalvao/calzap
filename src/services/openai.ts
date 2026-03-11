@@ -1,9 +1,30 @@
 import { FoodAnalysis } from '../types';
 import { OPENAI_API } from '../utils/constants';
+import { normalizeFoodAnalysis } from '../utils/nutrition';
 
-const SYSTEM_PROMPT = `Voce e um nutricionista especializado em estimar calorias de refeicoes a partir de fotos.
-Analise a imagem e retorne um JSON com a estimativa calorica de cada alimento identificado.
-Seja preciso nas quantidades estimadas e nas calorias.
+export interface OpenAIUsageSnapshot {
+  model: string;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  audioInputTokens?: number;
+}
+
+export interface PhotoAnalysisResult {
+  analysis: FoodAnalysis;
+  usage: OpenAIUsageSnapshot;
+}
+
+export interface AudioTranscriptionResult {
+  text: string;
+  durationInSeconds?: number;
+  usage: OpenAIUsageSnapshot;
+}
+
+const SYSTEM_PROMPT = `Voce e um nutricionista especializado em estimar calorias e macronutrientes de refeicoes a partir de fotos.
+Analise a imagem e retorne um JSON com a estimativa nutricional de cada alimento identificado.
+Classifique a refeicao em meal_type usando breakfast, lunch, dinner ou snack.
+Seja preciso nas quantidades estimadas, calorias, proteinas, carboidratos e gorduras.
 Responda SOMENTE com o JSON, sem texto adicional.`;
 
 const JSON_SCHEMA = {
@@ -13,6 +34,11 @@ const JSON_SCHEMA = {
     type: 'object',
     properties: {
       descricao: { type: 'string', description: 'Descricao geral da refeicao' },
+      meal_type: {
+        type: 'string',
+        enum: ['breakfast', 'lunch', 'dinner', 'snack'],
+        description: 'Tipo da refeicao',
+      },
       itens: {
         type: 'array',
         items: {
@@ -21,12 +47,18 @@ const JSON_SCHEMA = {
             nome: { type: 'string', description: 'Nome do alimento' },
             quantidade: { type: 'string', description: 'Quantidade estimada (ex: 200g, 1 unidade)' },
             calorias: { type: 'number', description: 'Calorias estimadas' },
+            protein_g: { type: 'number', description: 'Proteinas estimadas em gramas' },
+            carbs_g: { type: 'number', description: 'Carboidratos estimados em gramas' },
+            fat_g: { type: 'number', description: 'Gorduras estimadas em gramas' },
           },
-          required: ['nome', 'quantidade', 'calorias'],
+          required: ['nome', 'quantidade', 'calorias', 'protein_g', 'carbs_g', 'fat_g'],
           additionalProperties: false,
         },
       },
       total_calorias: { type: 'number', description: 'Total de calorias da refeicao' },
+      total_protein_g: { type: 'number', description: 'Total de proteinas da refeicao em gramas' },
+      total_carbs_g: { type: 'number', description: 'Total de carboidratos da refeicao em gramas' },
+      total_fat_g: { type: 'number', description: 'Total de gorduras da refeicao em gramas' },
       confianca: {
         type: 'string',
         enum: ['alta', 'media', 'baixa'],
@@ -34,7 +66,17 @@ const JSON_SCHEMA = {
       },
       observacoes: { type: 'string', description: 'Observacoes adicionais' },
     },
-    required: ['descricao', 'itens', 'total_calorias', 'confianca', 'observacoes'],
+    required: [
+      'descricao',
+      'meal_type',
+      'itens',
+      'total_calorias',
+      'total_protein_g',
+      'total_carbs_g',
+      'total_fat_g',
+      'confianca',
+      'observacoes',
+    ],
     additionalProperties: false,
   },
 };
@@ -44,7 +86,7 @@ export async function analyzePhoto(
   imageData: ArrayBuffer,
   mimeType: string,
   caption?: string,
-): Promise<FoodAnalysis> {
+): Promise<PhotoAnalysisResult> {
   const imageUrl = `data:${mimeType};base64,${arrayBufferToBase64(imageData)}`;
   const userContent: unknown[] = [
     {
@@ -80,16 +122,31 @@ export async function analyzePhoto(
 
   const data = (await resp.json()) as {
     choices: [{ message: { content: string } }];
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: {
+        cached_tokens?: number;
+      };
+    };
   };
 
-  return JSON.parse(data.choices[0].message.content) as FoodAnalysis;
+  return {
+    analysis: normalizeFoodAnalysis(JSON.parse(data.choices[0].message.content) as FoodAnalysis),
+    usage: {
+      model: 'gpt-5.2',
+      inputTokens: data.usage?.prompt_tokens,
+      cachedInputTokens: data.usage?.prompt_tokens_details?.cached_tokens,
+      outputTokens: data.usage?.completion_tokens,
+    },
+  };
 }
 
 export async function transcribeAudio(
   apiKey: string,
   audioData: ArrayBuffer,
   mimeType: string = 'audio/ogg',
-): Promise<string> {
+): Promise<AudioTranscriptionResult> {
   const formData = new FormData();
   formData.append('file', new Blob([audioData], { type: mimeType }), `audio.${extensionFromMimeType(mimeType)}`);
   formData.append('model', 'gpt-4o-transcribe');
@@ -108,8 +165,32 @@ export async function transcribeAudio(
     throw new Error(`OpenAI transcription error: ${resp.status} ${err}`);
   }
 
-  const data = (await resp.json()) as { text: string };
-  return data.text;
+  const data = (await resp.json()) as {
+    text: string;
+    duration?: number;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      input_tokens_details?: {
+        audio_tokens?: number;
+      };
+      input_token_details?: {
+        audio_tokens?: number;
+      };
+    };
+  };
+
+  return {
+    text: data.text,
+    durationInSeconds: data.duration,
+    usage: {
+      model: 'gpt-4o-transcribe',
+      inputTokens: data.usage?.input_tokens,
+      outputTokens: data.usage?.output_tokens,
+      audioInputTokens:
+        data.usage?.input_tokens_details?.audio_tokens ?? data.usage?.input_token_details?.audio_tokens,
+    },
+  };
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {

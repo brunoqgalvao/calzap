@@ -1,3 +1,4 @@
+import { recordAiUsage, recordEvent } from '../analytics/events';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, stepCountIs } from 'ai';
 import { createCalTrackerTools } from './tools';
@@ -13,6 +14,8 @@ Use ferramentas sempre que o usuario quiser:
 - registrar refeicao
 - ver resumo do dia
 - ver historico
+- registrar peso
+- ver peso ou variacao de peso
 - ajustar meta
 - apagar refeicao
 
@@ -28,7 +31,12 @@ Formato obrigatorio das respostas:
 
 interface ChatOptions {
   mealAlreadyLogged?: boolean;
+  source?: string;
+  phoneNumber?: string;
+  businessPhone?: string;
 }
+
+const CHAT_MODEL = 'gpt-4.1-mini';
 
 function hasTodaySummaryIntent(text: string): boolean {
   const normalized = text.toLowerCase();
@@ -45,7 +53,7 @@ async function buildTodaySummary(env: Env, userId: number): Promise<string> {
   const dbUser = await getUser(env.DB, userId);
   const goal = dbUser?.daily_calorie_goal ?? 2000;
   if (meals.length === 0) {
-    return `*Hoje*\n\n• Consumo: *0 / ${goal} kcal*\n• Progresso: \`${'—'.repeat(10)} 0%\`\n• Nenhuma refeicao registrada ainda.`;
+    return `*Hoje*\n\n• Consumo: *0 / ${goal} kcal*\n• Progresso: \`${'—'.repeat(10)} 0%\`\n• Macros: *P 0g · C 0g · G 0g*\n• Nenhuma refeicao registrada ainda.`;
   }
 
   return formatTodaySummary(
@@ -53,6 +61,10 @@ async function buildTodaySummary(env: Env, userId: number): Promise<string> {
       description: meal.description,
       items: JSON.parse(meal.food_items) as FoodItem[],
       totalCalories: meal.total_calories,
+      totalProtein: meal.total_protein_g,
+      totalCarbs: meal.total_carbs_g,
+      totalFat: meal.total_fat_g,
+      mealType: meal.meal_type,
       loggedAt: meal.logged_at,
     })),
     goal,
@@ -103,10 +115,11 @@ export async function handleChat(
   const modelInput = buildConversationContext(history, userMessage);
 
   const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY });
+  const source = options.source ?? 'text';
 
   try {
     const result = await generateText({
-      model: openai.chat('gpt-4.1-mini'),
+      model: openai.chat(CHAT_MODEL),
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: modelInput }],
       tools: createCalTrackerTools(env, userId, {
@@ -127,9 +140,35 @@ export async function handleChat(
     }
 
     await saveMessage(env.DB, userId, 'assistant', finalText);
+    await recordAiUsage(env.DB, {
+      eventName: 'ai.chat',
+      userId,
+      phoneNumber: options.phoneNumber ?? null,
+      businessPhone: options.businessPhone ?? null,
+      source,
+      model: CHAT_MODEL,
+      inputTokens: result.totalUsage.inputTokens,
+      cachedInputTokens: result.totalUsage.cachedInputTokens,
+      outputTokens: result.totalUsage.outputTokens,
+      metadata: {
+        finishReason: result.finishReason,
+        steps: result.steps.length,
+        toolCalls: result.toolCalls.length,
+      },
+    });
     return finalText;
   } catch (error) {
     console.error('Chat orchestration failed:', error);
+    await recordEvent(env.DB, {
+      eventName: 'ai.chat',
+      userId,
+      phoneNumber: options.phoneNumber ?? null,
+      businessPhone: options.businessPhone ?? null,
+      source,
+      model: CHAT_MODEL,
+      status: 'error',
+      metadata: { error: error instanceof Error ? error.message : String(error) },
+    });
     const fallback = 'Ocorreu um erro ao processar sua mensagem. Tente novamente em instantes.';
     await saveMessage(env.DB, userId, 'assistant', fallback);
     return fallback;
